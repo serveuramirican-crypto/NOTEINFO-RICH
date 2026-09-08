@@ -99,12 +99,23 @@ export default function LessonDetail() {
   // Handle color pick from toolbar
   const onPickColor = async (color) => {
     if (!toolbar) return
-    // Calculate offsets relative to plain text content
     const plainText = lesson?.content || ''
-    const snippet = toolbar.selectionText
+    const snippet = toolbar.selectionText?.trim()
+    if (!snippet) return
 
-    // Find offset in plain text (best-effort, handles first occurrence from approximate position)
+    // 1. Exact match in raw content
     let startOffset = plainText.indexOf(snippet)
+
+    // 2. If snippet not found directly (e.g. text was inside **bold** or has slight whitespace differences)
+    if (startOffset === -1) {
+      const cleanSnippet = snippet.replace(/[\*\_\`\#]/g, '').trim()
+      const escaped = cleanSnippet.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
+      const match = plainText.match(new RegExp(escaped, 'i'))
+      if (match) {
+        startOffset = match.index
+      }
+    }
+
     if (startOffset === -1) startOffset = 0
     const endOffset = startOffset + snippet.length
 
@@ -216,12 +227,13 @@ export default function LessonDetail() {
 
           {editing ? (
             <input
+              dir="auto"
               className="input-field flex-1 h-9 text-sm font-semibold"
               value={editTitle}
               onChange={e => setEditTitle(e.target.value)}
             />
           ) : (
-            <h1 className="flex-1 font-bold text-base truncate">{lesson.title}</h1>
+            <h1 dir="auto" className="flex-1 font-bold text-base truncate">{lesson.title}</h1>
           )}
 
           {lesson.folders?.name && (
@@ -287,7 +299,8 @@ export default function LessonDetail() {
         <div className="flex-1 px-6 md:px-12 py-8 max-w-3xl mx-auto w-full">
           {editing ? (
             <textarea
-              className="input-field w-full min-h-[70vh] text-base leading-relaxed resize-none"
+              dir="auto"
+              className="input-field w-full min-h-[70vh] text-base leading-relaxed resize-none font-sans"
               value={editContent}
               onChange={e => setEditContent(e.target.value)}
               placeholder="Write your lesson content here…"

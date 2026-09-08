@@ -63,6 +63,7 @@ export default function LessonModal({
           <div>
             <label className="block text-sm font-medium mb-1.5">Title *</label>
             <input
+              dir="auto"
               className="input-field"
               placeholder="e.g. Chapter 3 — Sorting Algorithms"
               value={title}
@@ -109,7 +110,8 @@ export default function LessonModal({
           <div>
             <label className="block text-sm font-medium mb-1.5">Content</label>
             <textarea
-              className="input-field resize-none"
+              dir="auto"
+              className="input-field resize-none leading-relaxed font-sans"
               rows={8}
               placeholder="Paste or type your lesson content here…"
               value={content}

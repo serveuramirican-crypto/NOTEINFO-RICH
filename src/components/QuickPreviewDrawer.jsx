@@ -168,9 +168,10 @@ export default function QuickPreviewDrawer({ lessonId, onClose, onLessonUpdated 
             )}
 
             {/* Lesson Body */}
-            <div className="prose dark:prose-invert max-w-none text-sm leading-relaxed whitespace-pre-wrap">
-              {renderedContent}
-            </div>
+            <div
+              className="lesson-prose text-sm leading-relaxed"
+              dangerouslySetInnerHTML={{ __html: renderedContent }}
+            />
           </div>
         )}
 

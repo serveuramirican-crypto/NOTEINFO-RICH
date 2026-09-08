@@ -78,7 +78,7 @@ export default function HighlightsPanel({ highlights, onScroll, onDelete, onUpda
                 </div>
 
                 {/* Snippet */}
-                <p className="text-xs leading-relaxed text-surface-700 dark:text-surface-300 line-clamp-3 italic">
+                <p dir="auto" className="text-xs leading-relaxed text-surface-700 dark:text-surface-300 line-clamp-3 italic">
                   "{hl.text_snippet}"
                 </p>
 
@@ -86,6 +86,7 @@ export default function HighlightsPanel({ highlights, onScroll, onDelete, onUpda
                 {editingNote === hl.id ? (
                   <div className="mt-2" onClick={e => e.stopPropagation()}>
                     <textarea
+                      dir="auto"
                       autoFocus
                       className="input-field text-xs w-full resize-none"
                       rows={2}
@@ -101,7 +102,7 @@ export default function HighlightsPanel({ highlights, onScroll, onDelete, onUpda
                   </div>
                 ) : hl.note ? (
                   <div className="mt-2 px-2 py-1.5 bg-surface-50 dark:bg-surface-800 rounded-md">
-                    <p className="text-xs text-surface-500">{hl.note}</p>
+                    <p dir="auto" className="text-xs text-surface-500">{hl.note}</p>
                   </div>
                 ) : null}
 

@@ -111,12 +111,13 @@ export default function SearchPage() {
                 <BookOpen size={16} style={{ color: r.subjects?.color || '#6366f1' }} />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="font-semibold">{r.title}</p>
+                <p dir="auto" className="font-semibold">{r.title}</p>
                 {r.subjects?.name && (
                   <span className="text-xs text-surface-400">{r.subjects.name}</span>
                 )}
                 {r.content && (
                   <p
+                    dir="auto"
                     className="text-xs text-surface-500 mt-1.5 leading-relaxed line-clamp-2"
                     dangerouslySetInnerHTML={{ __html: '…' + highlight(r.content, query) + '…' }}
                   />

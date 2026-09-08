@@ -87,13 +87,13 @@ export default function SearchModal({ onClose }) {
               >
                 <BookOpen size={15} style={{ color: r.subjects?.color || '#6366f1' }} />
               </div>
-              <div className="min-w-0">
-                <p className="font-semibold text-sm truncate">{r.title}</p>
+              <div className="min-w-0 flex-1">
+                <p dir="auto" className="font-semibold text-sm truncate">{r.title}</p>
                 {r.subjects?.name && (
                   <span className="text-xs text-surface-400">{r.subjects.name}</span>
                 )}
                 {r.content && (
-                  <p className="text-xs text-surface-400 mt-0.5 line-clamp-1">
+                  <p dir="auto" className="text-xs text-surface-400 mt-0.5 line-clamp-1">
                     {r.content.slice(0, 100)}
                   </p>
                 )}
