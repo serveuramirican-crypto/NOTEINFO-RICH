@@ -130,6 +130,15 @@ export default function LessonDetail() {
     showToast('Highlight removed', 'info')
   }
 
+  // Change highlight color
+  const changeHighlightColor = async (highlightId, newColor) => {
+    const { error } = await supabase.from('highlights').update({ color: newColor }).eq('id', highlightId)
+    if (!error) {
+      setHighlights(prev => prev.map(h => h.id === highlightId ? { ...h, color: newColor } : h))
+      showToast('Color updated!', 'success')
+    }
+  }
+
   // Scroll to a highlight
   const scrollToHighlight = (highlightId) => {
     const el = contentRef.current?.querySelector(`[data-hl="${highlightId}"]`)
@@ -320,6 +329,7 @@ export default function LessonDetail() {
             onScroll={scrollToHighlight}
             onDelete={deleteHighlight}
             onUpdateNote={updateHighlightNote}
+            onChangeColor={changeHighlightColor}
           />
         </div>
       )}
