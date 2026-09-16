@@ -62,6 +62,14 @@ body.dark {
 body.dark ::-webkit-scrollbar-thumb { background: #3f3f46; }
 
 /* Highlight colors — pastel backgrounds */
+mark,
+.hl-yellow, .hl-pink, .hl-blue, .hl-green, .hl-purple {
+  color: inherit;
+  font-style: inherit;
+  font-weight: inherit;
+  unicode-bidi: normal !important;
+}
+
 .hl-yellow  { background: rgba(250, 204,  21, 0.35); border-radius: 3px; padding: 1px 0; }
 .hl-pink    { background: rgba(236,  72, 153, 0.25); border-radius: 3px; padding: 1px 0; }
 .hl-blue    { background: rgba( 59, 130, 246, 0.25); border-radius: 3px; padding: 1px 0; }
@@ -301,13 +309,17 @@ body.dark .lesson-prose {
   unicode-bidi: plaintext;
 }
 
-/* Isolate inline mixed text elements so English phrases don't flip Arabic punctuation */
+/* Inline mixed text elements */
 .lesson-prose strong,
 .lesson-prose em,
 .lesson-prose code,
-.lesson-prose a,
+.lesson-prose a {
+  unicode-bidi: normal;
+}
+
 .lesson-prose mark {
-  unicode-bidi: isolate;
+  unicode-bidi: normal !important;
+  display: inline;
 }
 
 .timestamp-chip {

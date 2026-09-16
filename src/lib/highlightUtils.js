@@ -155,7 +155,7 @@ export function parseMarkdownToHtml(rawText) {
     )
   }
 
-  return htmlBlocks.join('\n')
+  return htmlBlocks.join('')
 }
 
 /**
