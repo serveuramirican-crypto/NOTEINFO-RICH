@@ -79,15 +79,8 @@ export default function LessonDetail() {
   const saveHighlight = async (color, selectionText, rangeInfo) => {
     if (!selectionText || !color) return
 
-    let currentUserId = user?.id
-    if (!currentUserId) {
-      const { data: userData } = await supabase.auth.getUser()
-      currentUserId = userData?.user?.id
-    }
-
     const payload = {
       lesson_id: id,
-      user_id: currentUserId,
       text_snippet: selectionText,
       start_offset: rangeInfo?.start ?? 0,
       end_offset: rangeInfo?.end ?? selectionText.length,
