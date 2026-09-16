@@ -9,7 +9,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
 import HighlightToolbar from '../components/HighlightToolbar'
 import HighlightsPanel from '../components/HighlightsPanel'
-import { applyHighlightsToContent } from '../lib/highlightUtils'
+import { applyHighlightsToContent, getRangeOffsets } from '../lib/highlightUtils'
 
 export default function LessonDetail() {
   const { id } = useParams()
@@ -27,8 +27,7 @@ export default function LessonDetail() {
   const [showPanel, setShowPanel] = useState(true)
 
   // Toolbar state
-  const [toolbar, setToolbar] = useState(null) // { x, y, range, selection }
-  const [pendingColor, setPendingColor] = useState(null)
+  const [toolbar, setToolbar] = useState(null) // { x, y, selectionText, startOffset, endOffset }
   const [notePopover, setNotePopover] = useState(null) // { x, y, highlightId }
 
   const contentRef = useRef(null)
@@ -49,47 +48,64 @@ export default function LessonDetail() {
   useEffect(() => { fetchData() }, [fetchData])
 
   // Text selection → show toolbar
-  const handleMouseUp = useCallback((e) => {
+  const handleMouseUp = useCallback(() => {
     if (editing) return
     const selection = window.getSelection()
     if (!selection || selection.isCollapsed || !selection.toString().trim()) {
-      setToolbar(null)
       return
     }
     // Check selection is inside content area
     const range = selection.getRangeAt(0)
     const container = contentRef.current
     if (!container || !container.contains(range.commonAncestorContainer)) {
-      setToolbar(null)
       return
     }
+    const selectionText = selection.toString().trim()
+    if (!selectionText) return
+
     const rect = range.getBoundingClientRect()
+    const { start, end } = getRangeOffsets(range, container)
+
     setToolbar({
-      x: rect.left + rect.width / 2,
-      y: rect.top + window.scrollY - 10,
-      selectionText: selection.toString(),
-      range: range.cloneRange(),
+      x: Math.max(100, Math.min(window.innerWidth - 100, rect.left + rect.width / 2)),
+      y: rect.top,
+      selectionText,
+      startOffset: start,
+      endOffset: end,
     })
   }, [editing])
 
   // Save highlight to DB
   const saveHighlight = async (color, selectionText, rangeInfo) => {
     if (!selectionText || !color) return
+
+    let currentUserId = user?.id
+    if (!currentUserId) {
+      const { data: userData } = await supabase.auth.getUser()
+      currentUserId = userData?.user?.id
+    }
+
+    const payload = {
+      lesson_id: id,
+      user_id: currentUserId,
+      text_snippet: selectionText,
+      start_offset: rangeInfo?.start ?? 0,
+      end_offset: rangeInfo?.end ?? selectionText.length,
+      color,
+      note: '',
+    }
+
     const { data, error } = await supabase
       .from('highlights')
-      .insert({
-        lesson_id: id,
-        text_snippet: selectionText,
-        start_offset: rangeInfo.start,
-        end_offset: rangeInfo.end,
-        color,
-        note: '',
-      })
+      .insert(payload)
       .select()
       .single()
 
-    if (!error && data) {
-      setHighlights(prev => [...prev, data].sort((a, b) => a.start_offset - b.start_offset))
+    if (error) {
+      console.error('Highlight save error:', error)
+      showToast(error.message || 'Failed to save highlight', 'error')
+    } else if (data) {
+      setHighlights(prev => [...prev, data].sort((a, b) => (a.start_offset || 0) - (b.start_offset || 0)))
       showToast('Highlight saved!', 'success')
     }
     window.getSelection()?.removeAllRanges()
@@ -99,27 +115,13 @@ export default function LessonDetail() {
   // Handle color pick from toolbar
   const onPickColor = async (color) => {
     if (!toolbar) return
-    const plainText = lesson?.content || ''
-    const snippet = toolbar.selectionText?.trim()
+    const snippet = toolbar.selectionText
     if (!snippet) return
 
-    // 1. Exact match in raw content
-    let startOffset = plainText.indexOf(snippet)
-
-    // 2. If snippet not found directly (e.g. text was inside **bold** or has slight whitespace differences)
-    if (startOffset === -1) {
-      const cleanSnippet = snippet.replace(/[\*\_\`\#]/g, '').trim()
-      const escaped = cleanSnippet.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
-      const match = plainText.match(new RegExp(escaped, 'i'))
-      if (match) {
-        startOffset = match.index
-      }
-    }
-
-    if (startOffset === -1) startOffset = 0
-    const endOffset = startOffset + snippet.length
-
-    await saveHighlight(color, snippet, { start: startOffset, end: endOffset })
+    await saveHighlight(color, snippet, {
+      start: toolbar.startOffset ?? 0,
+      end: toolbar.endOffset ?? snippet.length,
+    })
   }
 
   // Add/update note on highlight

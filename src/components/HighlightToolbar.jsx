@@ -12,22 +12,39 @@ export default function HighlightToolbar({ x, y, onPickColor, onClose }) {
   return (
     <div
       className="highlight-toolbar"
-      style={{ left: x, top: y - 58 }}
-      onMouseDown={e => e.stopPropagation()}
+      style={{
+        left: `${x}px`,
+        top: `${Math.max(12, y - 52)}px`,
+      }}
+      onMouseDown={e => {
+        // Prevent selection collapse on mousedown
+        e.preventDefault()
+        e.stopPropagation()
+      }}
     >
       {COLORS.map(c => (
         <button
           key={c.id}
+          type="button"
           className="color-dot"
           style={{ background: c.hex }}
           title={`${c.label} (Press ${COLORS.indexOf(c) + 1})`}
-          onClick={() => onPickColor(c.id)}
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            onPickColor(c.id)
+          }}
         />
       ))}
-      <div className="w-px h-5 bg-surface-200 mx-1" />
+      <div className="w-px h-5 bg-surface-200 dark:bg-surface-700 mx-1" />
       <button
-        className="w-6 h-6 rounded-full flex items-center justify-center text-surface-400 hover:text-surface-700 hover:bg-surface-100 transition-colors"
-        onClick={onClose}
+        type="button"
+        className="w-6 h-6 rounded-full flex items-center justify-center text-surface-400 hover:text-surface-700 dark:hover:text-surface-200 hover:bg-surface-100 dark:hover:bg-surface-800 transition-colors"
+        onClick={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          onClose()
+        }}
         title="Dismiss"
       >
         <X size={13} />
@@ -35,3 +52,4 @@ export default function HighlightToolbar({ x, y, onPickColor, onClose }) {
     </div>
   )
 }
+

@@ -1,9 +1,9 @@
 /**
  * Safely escapes HTML special characters.
  */
-function escapeHtml(text) {
+export function escapeHtml(text) {
   if (!text) return ''
-  return text
+  return String(text)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
@@ -73,7 +73,7 @@ function renderInlineMarkdown(text) {
 /**
  * Parses markdown blocks and returns HTML with proper bidirectional (dir="auto") attributes.
  */
-function parseMarkdownToHtml(rawText) {
+export function parseMarkdownToHtml(rawText) {
   if (!rawText) return ''
 
   // Normalize line endings
@@ -106,7 +106,7 @@ function parseMarkdownToHtml(rawText) {
     if (/^#\s+(.+)$/.test(trimmed)) {
       const content = trimmed.replace(/^#\s+/, '')
       htmlBlocks.push(
-        `<h1 dir="auto" class="text-2xl font-bold mt-6 mb-3 text-surface-900 dark:text-surface-100">${renderInlineMarkdown(content)}</h1>`
+        `<h1 dir="auto" class="text-2xl font-bold mt-6 mb-3 text-surface-900 dark:text-surface-100">${renderInlineMarkdown(escapeHtml(content))}</h1>`
       )
       continue
     }
@@ -115,7 +115,7 @@ function parseMarkdownToHtml(rawText) {
     if (/^##\s+(.+)$/.test(trimmed)) {
       const content = trimmed.replace(/^##\s+/, '')
       htmlBlocks.push(
-        `<h2 dir="auto" class="text-xl font-bold mt-5 mb-2.5 text-surface-900 dark:text-surface-100">${renderInlineMarkdown(content)}</h2>`
+        `<h2 dir="auto" class="text-xl font-bold mt-5 mb-2.5 text-surface-900 dark:text-surface-100">${renderInlineMarkdown(escapeHtml(content))}</h2>`
       )
       continue
     }
@@ -124,7 +124,7 @@ function parseMarkdownToHtml(rawText) {
     if (/^###\s+(.+)$/.test(trimmed)) {
       const content = trimmed.replace(/^###\s+/, '')
       htmlBlocks.push(
-        `<h3 dir="auto" class="text-lg font-bold mt-4 mb-2 text-surface-900 dark:text-surface-100">${renderInlineMarkdown(content)}</h3>`
+        `<h3 dir="auto" class="text-lg font-bold mt-4 mb-2 text-surface-900 dark:text-surface-100">${renderInlineMarkdown(escapeHtml(content))}</h3>`
       )
       continue
     }
@@ -133,7 +133,7 @@ function parseMarkdownToHtml(rawText) {
     if (/^>\s+(.+)$/s.test(trimmed)) {
       const content = trimmed.replace(/^>\s+/gm, '')
       htmlBlocks.push(
-        `<blockquote dir="auto" class="border-l-4 border-brand-500 pl-4 py-1 my-3 text-surface-600 dark:text-surface-400 italic bg-surface-50 dark:bg-surface-800/40 rounded-r-lg">${renderInlineMarkdown(content)}</blockquote>`
+        `<blockquote dir="auto" class="border-l-4 border-brand-500 pl-4 py-1 my-3 text-surface-600 dark:text-surface-400 italic bg-surface-50 dark:bg-surface-800/40 rounded-r-lg">${renderInlineMarkdown(escapeHtml(content))}</blockquote>`
       )
       continue
     }
@@ -143,7 +143,7 @@ function parseMarkdownToHtml(rawText) {
       const lines = trimmed.split('\n')
       const listItems = lines.map(line => {
         const itemText = line.replace(/^(\-|\*|\d+\.)\s+/, '')
-        return `<li dir="auto" class="my-1">${renderInlineMarkdown(itemText)}</li>`
+        return `<li dir="auto" class="my-1">${renderInlineMarkdown(escapeHtml(itemText))}</li>`
       }).join('')
       htmlBlocks.push(`<ul class="list-disc list-inside my-3 space-y-1">${listItems}</ul>`)
       continue
@@ -151,7 +151,7 @@ function parseMarkdownToHtml(rawText) {
 
     // Regular paragraph
     htmlBlocks.push(
-      `<p dir="auto" class="lesson-paragraph">${renderInlineMarkdown(block)}</p>`
+      `<p dir="auto" class="lesson-paragraph">${renderInlineMarkdown(escapeHtml(block))}</p>`
     )
   }
 
@@ -159,76 +159,174 @@ function parseMarkdownToHtml(rawText) {
 }
 
 /**
- * Applies stored highlights to plain text content and returns HTML.
- * Highlights are sorted by start_offset and rendered as <mark> spans.
+ * Given a DOM Range inside a container, compute character offsets from container.textContent.
+ */
+export function getRangeOffsets(range, containerEl) {
+  if (!range || !containerEl) return { start: 0, end: 0 }
+
+  try {
+    const preRange = range.cloneRange()
+    preRange.selectNodeContents(containerEl)
+    preRange.setEnd(range.startContainer, range.startOffset)
+    const start = preRange.toString().length
+    const end = start + range.toString().length
+    return { start, end }
+  } catch {
+    return { start: 0, end: 0 }
+  }
+}
+
+/**
+ * Applies a single highlight onto a DOM container (e.g. root element in DOMParser).
+ */
+function applySingleHighlight(root, hl) {
+  if (!hl || !hl.text_snippet) return
+  const snippet = hl.text_snippet
+
+  // Collect text nodes and their cumulative text offsets
+  const treeWalker = root.ownerDocument.createTreeWalker(
+    root,
+    NodeFilter.SHOW_TEXT,
+    null
+  )
+
+  const textNodes = []
+  let cumulative = 0
+  let node
+  while ((node = treeWalker.nextNode())) {
+    // Skip if already inside a mark for the same highlight
+    if (node.parentElement?.closest(`mark[data-hl="${hl.id}"]`)) continue
+
+    const len = node.textContent.length
+    textNodes.push({
+      node,
+      start: cumulative,
+      end: cumulative + len,
+      length: len,
+      text: node.textContent,
+    })
+    cumulative += len
+  }
+
+  const fullDocText = textNodes.map(t => t.text).join('')
+  if (!fullDocText) return
+
+  // Find the match position in fullDocText
+  let matchStart = -1
+
+  // 1. Check if snippet matches at hl.start_offset
+  if (typeof hl.start_offset === 'number' && hl.start_offset >= 0) {
+    if (fullDocText.substring(hl.start_offset, hl.start_offset + snippet.length) === snippet) {
+      matchStart = hl.start_offset
+    }
+  }
+
+  // 2. If not matched at exact start_offset, find all occurrences of snippet in fullDocText
+  if (matchStart === -1) {
+    const indices = []
+    let pos = fullDocText.indexOf(snippet)
+    while (pos !== -1) {
+      indices.push(pos)
+      pos = fullDocText.indexOf(snippet, pos + 1)
+    }
+
+    if (indices.length > 0) {
+      if (typeof hl.start_offset === 'number' && hl.start_offset >= 0) {
+        // Pick the occurrence closest to hl.start_offset
+        indices.sort((a, b) => Math.abs(a - hl.start_offset) - Math.abs(b - hl.start_offset))
+        matchStart = indices[0]
+      } else {
+        matchStart = indices[0]
+      }
+    }
+  }
+
+  // 3. Fallback: normalized search (ignoring excessive whitespace/newlines)
+  if (matchStart === -1) {
+    const cleanSnippet = snippet.trim().replace(/\s+/g, ' ')
+    const cleanDoc = fullDocText.replace(/\s+/g, ' ')
+    const cleanPos = cleanDoc.indexOf(cleanSnippet)
+    if (cleanPos !== -1) {
+      matchStart = cleanPos
+    }
+  }
+
+  if (matchStart === -1) return
+
+  const matchEnd = matchStart + snippet.length
+
+  // Find overlapping text nodes and wrap matched portions
+  const nodesToProcess = textNodes.filter(t => t.end > matchStart && t.start < matchEnd)
+
+  for (const entry of nodesToProcess) {
+    const { node: currNode, start: nodeStart, length: nodeLen, text: nodeText } = entry
+    if (!currNode.parentNode) continue
+
+    const sliceStart = Math.max(0, matchStart - nodeStart)
+    const sliceEnd = Math.min(nodeLen, matchEnd - nodeStart)
+
+    if (sliceStart >= sliceEnd) continue
+
+    const beforeText = nodeText.substring(0, sliceStart)
+    const matchedText = nodeText.substring(sliceStart, sliceEnd)
+    const afterText = nodeText.substring(sliceEnd)
+
+    const doc = root.ownerDocument
+    const mark = doc.createElement('mark')
+    mark.className = `hl-${hl.color || 'yellow'}`
+    mark.setAttribute('data-hl', hl.id || '')
+    mark.setAttribute('data-color', hl.color || 'yellow')
+    if (hl.note) {
+      mark.setAttribute('title', hl.note)
+    }
+    mark.textContent = matchedText
+
+    const parent = currNode.parentNode
+    if (beforeText) {
+      parent.insertBefore(doc.createTextNode(beforeText), currNode)
+    }
+    parent.insertBefore(mark, currNode)
+    if (afterText) {
+      parent.insertBefore(doc.createTextNode(afterText), currNode)
+    }
+    parent.removeChild(currNode)
+  }
+}
+
+/**
+ * Applies stored highlights to plain text content and returns safe HTML.
  */
 export function applyHighlightsToContent(plainText, highlights = []) {
   if (!plainText) return ''
 
+  const baseHtml = parseMarkdownToHtml(plainText)
   if (!highlights || highlights.length === 0) {
-    return parseMarkdownToHtml(escapeHtml(plainText))
+    return baseHtml
   }
 
-  // Sort by start offset descending so we insert tags from end to start without breaking prior offsets
-  const validHighlights = [...highlights]
-    .filter(h => h.start_offset !== undefined && h.end_offset !== undefined && h.end_offset > h.start_offset)
-    .sort((a, b) => b.start_offset - a.start_offset)
-
-  let markedText = plainText
-
-  for (const hl of validHighlights) {
-    const start = Math.max(0, hl.start_offset)
-    const end = Math.min(markedText.length, hl.end_offset)
-    if (end > start) {
-      const before = markedText.slice(0, start)
-      const snippet = markedText.slice(start, end)
-      const after = markedText.slice(end)
-      const markPlaceholder = `___MARK_START_${hl.color}_${hl.id}_${encodeURIComponent(hl.note || '')}___${snippet}___MARK_END___`
-      markedText = before + markPlaceholder + after
-    }
+  if (typeof window === 'undefined' || typeof DOMParser === 'undefined') {
+    return baseHtml
   }
 
-  // Escape HTML on the text
-  let escaped = escapeHtml(markedText)
+  try {
+    const parser = new DOMParser()
+    const doc = parser.parseFromString(`<div id="__hl_root">${baseHtml}</div>`, 'text/html')
+    const hlRoot = doc.getElementById('__hl_root')
+    if (!hlRoot) return baseHtml
 
-  // Restore <mark> tags
-  escaped = escaped.replace(
-    /___MARK_START_([a-z]+)_([a-zA-Z0-9\-]+)_(.*?)___([\s\S]*?)___MARK_END___/g,
-    (_, color, id, encodedNote, snippet) => {
-      const note = decodeURIComponent(encodedNote || '')
-      return `<mark class="hl-${color}" data-hl="${id}" data-color="${color}" title="${escapeHtml(note)}">${snippet}</mark>`
+    // Apply highlights
+    const validHighlights = [...highlights].filter(
+      h => h && h.text_snippet && h.text_snippet.trim().length > 0
+    )
+
+    for (const hl of validHighlights) {
+      applySingleHighlight(hlRoot, hl)
     }
-  )
 
-  return parseMarkdownToHtml(escaped)
+    return hlRoot.innerHTML
+  } catch (err) {
+    console.error('Error applying highlights:', err)
+    return baseHtml
+  }
 }
 
-/**
- * Given a DOM Range inside a plain-text content element, 
- * compute character offsets from the element's textContent.
- */
-export function getRangeOffsets(range, containerEl) {
-  const treeWalker = document.createTreeWalker(
-    containerEl,
-    NodeFilter.SHOW_TEXT,
-    null
-  )
-  let offset = 0
-  let start = 0
-  let end = 0
-  let node
-
-  while ((node = treeWalker.nextNode())) {
-    const len = node.textContent.length
-    if (node === range.startContainer) {
-      start = offset + range.startOffset
-    }
-    if (node === range.endContainer) {
-      end = offset + range.endOffset
-      break
-    }
-    offset += len
-  }
-
-  return { start, end }
-}
