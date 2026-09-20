@@ -23,17 +23,19 @@ const HL_COLORS = {
   purple: { label: 'Purple', hex: '#a855f7' },
 }
 
+let libraryCache = null
+
 export default function Library() {
   const { user } = useAuth()
   const { showToast } = useToast()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
 
-  const [lessons, setLessons] = useState([])
-  const [subjects, setSubjects] = useState([])
-  const [folders, setFolders] = useState([])
-  const [tags, setTags] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [lessons, setLessons] = useState(libraryCache?.lessons || [])
+  const [subjects, setSubjects] = useState(libraryCache?.subjects || [])
+  const [folders, setFolders] = useState(libraryCache?.folders || [])
+  const [tags, setTags] = useState(libraryCache?.tags || [])
+  const [loading, setLoading] = useState(!libraryCache)
 
   // View & Filter States
   const [viewMode, setViewMode] = useState('grid') // 'grid' | 'list'
@@ -67,6 +69,11 @@ export default function Library() {
       setSubjects(s.data || [])
       setFolders(f.data || [])
       setTags(t.data || [])
+      
+      if (!libraryCache) libraryCache = {}
+      libraryCache.subjects = s.data || []
+      libraryCache.folders = f.data || []
+      libraryCache.tags = t.data || []
     })
   }
 
@@ -77,7 +84,11 @@ export default function Library() {
   // Fetch Lessons
   const fetchLessons = async () => {
     if (!user) return
-    setLoading(true)
+    
+    // Only show loading if we don't have cached lessons or if filters changed?
+    // Let's just show loading if libraryCache is empty to prevent full screen spinner on filter changes
+    if (!libraryCache?.lessons) setLoading(true)
+    
     let q = supabase
       .from('lessons')
       .select('*, subjects(name,color), folders(id,name,color), highlights(id,color,text_snippet,note)')
@@ -95,6 +106,14 @@ export default function Library() {
 
     const { data } = await q
     setLessons(data || [])
+    
+    if (!libraryCache) libraryCache = {}
+    
+    // Only cache if no filters are applied to avoid caching filtered data as the default
+    if (!filterSubject && !filterFolder && !localSearch && sortBy === 'date_desc') {
+      libraryCache.lessons = data || []
+    }
+    
     setLoading(false)
   }
 

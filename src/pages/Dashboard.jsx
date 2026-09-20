@@ -14,17 +14,24 @@ const COLOR_MAP = {
   green: '#22c55e', purple: '#a855f7'
 }
 
+let dashboardCache = null
+
 export default function Dashboard() {
   const { user } = useAuth()
   const navigate = useNavigate()
   const { setSearchOpen } = useOutletContext()
-  const [stats, setStats] = useState({ lessons: 0, highlights: 0, subjects: 0, thisWeek: 0 })
-  const [recent, setRecent] = useState([])
-  const [highlightBreakdown, setHighlightBreakdown] = useState({})
-  const [loading, setLoading] = useState(true)
+  
+  const [stats, setStats] = useState(dashboardCache?.stats || { lessons: 0, highlights: 0, subjects: 0, thisWeek: 0 })
+  const [recent, setRecent] = useState(dashboardCache?.recent || [])
+  const [highlightBreakdown, setHighlightBreakdown] = useState(dashboardCache?.highlightBreakdown || {})
+  const [loading, setLoading] = useState(!dashboardCache)
 
   useEffect(() => {
     if (!user) return
+    
+    // If we have cache, don't show the full-page loading spinner
+    if (!dashboardCache) setLoading(true)
+
     Promise.all([
       supabase.from('lessons').select('id, title, subject_id, created_at, is_favorite, subjects(name,color)', { count: 'exact' }).eq('user_id', user.id).order('created_at', { ascending: false }).limit(6),
       supabase.from('highlights').select('id, color, lesson_id, lessons!inner(user_id)', { count: 'exact' }).eq('lessons.user_id', user.id),
@@ -40,15 +47,23 @@ export default function Dashboard() {
         breakdown[hl.color] = (breakdown[hl.color] || 0) + 1
       }
 
-      setStats({
+      const newStats = {
         lessons: lessonsRes.count || 0,
         highlights: hlRes.count || 0,
         subjects: subRes.count || 0,
         thisWeek,
-      })
+      }
+
+      setStats(newStats)
       setRecent(allLessons.slice(0, 6))
       setHighlightBreakdown(breakdown)
       setLoading(false)
+
+      dashboardCache = {
+        stats: newStats,
+        recent: allLessons.slice(0, 6),
+        highlightBreakdown: breakdown
+      }
     })
   }, [user])
 

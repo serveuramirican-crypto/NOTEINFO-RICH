@@ -10,19 +10,23 @@ import { useToast } from '../contexts/ToastContext'
 import LessonModal from '../components/LessonModal'
 import FolderModal from '../components/FolderModal'
 
+const folderCache = {}
+
 export default function FolderView() {
   const { id } = useParams()
   const { user } = useAuth()
   const { showToast } = useToast()
   const navigate = useNavigate()
 
-  const [folder, setFolder] = useState(null)
-  const [breadcrumbs, setBreadcrumbs] = useState([])
-  const [subfolders, setSubfolders] = useState([])
-  const [lessons, setLessons] = useState([])
-  const [allFolders, setAllFolders] = useState([])
-  const [subjects, setSubjects] = useState([])
-  const [loading, setLoading] = useState(true)
+  const cached = folderCache[id]
+
+  const [folder, setFolder] = useState(cached?.folder || null)
+  const [breadcrumbs, setBreadcrumbs] = useState(cached?.breadcrumbs || [])
+  const [subfolders, setSubfolders] = useState(cached?.subfolders || [])
+  const [lessons, setLessons] = useState(cached?.lessons || [])
+  const [allFolders, setAllFolders] = useState(cached?.allFolders || [])
+  const [subjects, setSubjects] = useState(cached?.subjects || [])
+  const [loading, setLoading] = useState(!cached)
   const [viewMode, setViewMode] = useState('grid')
 
   const [showLessonModal, setShowLessonModal] = useState(false)
@@ -32,7 +36,7 @@ export default function FolderView() {
   // Fetch all necessary data
   const fetchData = async () => {
     if (!user || !id) return
-    setLoading(true)
+    if (!folderCache[id]) setLoading(true)
 
     // 1. Fetch current folder
     const { data: currentFolder, error: folderErr } = await supabase
@@ -90,6 +94,15 @@ export default function FolderView() {
       .eq('user_id', user.id)
       .order('name')
     setSubjects(subjs || [])
+
+    folderCache[id] = {
+      folder: currentFolder,
+      breadcrumbs: crumbs,
+      subfolders: sub,
+      lessons: lessonsData || [],
+      allFolders: foldersList || [],
+      subjects: subjs || []
+    }
 
     setLoading(false)
   }
