@@ -85,6 +85,12 @@ export default function LessonDetail() {
     return { words, minutes }
   }, [lesson?.content])
 
+  // Memoized rendered content with highlights
+  const renderedContent = useMemo(() => {
+    if (editing || !lesson) return null
+    return applyHighlightsToContent(lesson.content || '', highlights)
+  }, [editing, lesson, highlights])
+
   // Fetch lesson and highlights
   const fetchData = useCallback(async () => {
     const [{ data: l }, { data: h }] = await Promise.all([
@@ -301,8 +307,6 @@ export default function LessonDetail() {
       Lesson not found. <button onClick={() => navigate(-1)} className="text-brand-500 underline">Go back</button>
     </div>
   )
-
-  const renderedContent = editing ? null : applyHighlightsToContent(lesson.content || '', highlights)
 
   return (
     <div className={`flex min-h-screen ${focusMode ? 'fixed inset-0 z-50 bg-[#f8f8fc] dark:bg-[#0f0f14] overflow-y-auto' : ''}`}>
