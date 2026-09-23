@@ -1,19 +1,19 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
-  ArrowLeft, Star, StarOff, Highlighter, X, MessageSquare,
-  Trash2, ChevronRight, Save, Edit3, Download, Folder
+  ArrowLeft, Star, StarOff, Highlighter,
+  Save, Edit3, Download, Folder,
+  Sparkles, Maximize2, Minimize2, Clock
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
 import HighlightToolbar from '../components/HighlightToolbar'
 import HighlightsPanel from '../components/HighlightsPanel'
-import { applyHighlightsToContent, parseMarkdownToHtml, getRangeOffsets } from '../lib/highlightUtils'
+import HighlightReviewModal from '../components/HighlightReviewModal'
+import { applyHighlightsToContent, getRangeOffsets } from '../lib/highlightUtils'
 
 export default function LessonDetail() {
   const { id } = useParams()
-  const { user } = useAuth()
   const { showToast } = useToast()
   const navigate = useNavigate()
 
@@ -25,13 +25,65 @@ export default function LessonDetail() {
   const [editTitle, setEditTitle] = useState('')
   const [saving, setSaving] = useState(false)
   const [showPanel, setShowPanel] = useState(true)
+  const [mobilePanelOpen, setMobilePanelOpen] = useState(false)
+  const [showReviewModal, setShowReviewModal] = useState(false)
+  const [focusMode, setFocusMode] = useState(false)
+  const [scrollProgress, setScrollProgress] = useState(0)
+
+  // Persistent Font Size: '15px' | '17px' | '19px' | '21px'
+  const [fontSize, setFontSize] = useState(() => {
+    return localStorage.getItem('maktaba_font_size') || '17px'
+  })
+
+  const changeFontSize = (delta) => {
+    const SIZES = ['15px', '17px', '19px', '21px', '23px']
+    const currentIndex = SIZES.indexOf(fontSize) !== -1 ? SIZES.indexOf(fontSize) : 1
+    const nextIndex = Math.max(0, Math.min(SIZES.length - 1, currentIndex + delta))
+    const newSize = SIZES[nextIndex]
+    setFontSize(newSize)
+    localStorage.setItem('maktaba_font_size', newSize)
+  }
 
   // Toolbar state
   const [toolbar, setToolbar] = useState(null) // { x, y, selectionText, startOffset, endOffset }
-  const [notePopover, setNotePopover] = useState(null) // { x, y, highlightId }
 
   const contentRef = useRef(null)
   const lessonContentRef = useRef('') // always holds latest lesson.content for offset calc
+
+  // Reading progress tracker
+  useEffect(() => {
+    const handleScroll = () => {
+      const totalHeight = document.documentElement.scrollHeight - window.innerHeight
+      if (totalHeight > 0) {
+        const progress = Math.min(100, Math.max(0, (window.scrollY / totalHeight) * 100))
+        setScrollProgress(progress)
+      } else {
+        setScrollProgress(0)
+      }
+    }
+    window.addEventListener('scroll', handleScroll, { passive: true })
+    return () => window.removeEventListener('scroll', handleScroll)
+  }, [])
+
+  // Focus mode exit on Escape
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && focusMode) {
+        setFocusMode(false)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [focusMode])
+
+  // Estimated reading time and word count
+  const readingStats = useMemo(() => {
+    if (!lesson?.content) return { words: 0, minutes: 1 }
+    const clean = lesson.content.replace(/[#*`_>[\]()]/g, ' ').trim()
+    const words = clean ? clean.split(/\s+/).length : 0
+    const minutes = Math.max(1, Math.ceil(words / 180))
+    return { words, minutes }
+  }, [lesson?.content])
 
   // Fetch lesson and highlights
   const fetchData = useCallback(async () => {
@@ -101,85 +153,61 @@ export default function LessonDetail() {
     })
   }, [editing])
 
-  // Listen to mouseup and touchend globally
+  // Bind mouseup to contentRef
   useEffect(() => {
-    const handleMouseUpGlobal = (e) => {
-      // Don't process if click was inside the toolbar (let toolbar handle it)
-      if (e?.target?.closest('.highlight-toolbar')) return
-      setTimeout(() => handleSelection(e), 10)
-    }
-    const handleTouchEndGlobal = (e) => {
-      setTimeout(() => handleSelection(e), 10)
-    }
-    const handleKeyUpGlobal = (e) => {
-      handleSelection(e)
-    }
-    document.addEventListener('mouseup', handleMouseUpGlobal)
-    document.addEventListener('touchend', handleTouchEndGlobal)
-    document.addEventListener('keyup', handleKeyUpGlobal)
+    const el = contentRef.current
+    if (!el) return
+    el.addEventListener('mouseup', handleSelection)
+    el.addEventListener('touchend', handleSelection)
     return () => {
-      document.removeEventListener('mouseup', handleMouseUpGlobal)
-      document.removeEventListener('touchend', handleTouchEndGlobal)
-      document.removeEventListener('keyup', handleKeyUpGlobal)
+      el.removeEventListener('mouseup', handleSelection)
+      el.removeEventListener('touchend', handleSelection)
     }
-  }, [handleSelection])
+  }, [handleSelection, renderedContent])
 
-  // Save highlight to DB
-  const saveHighlight = async (color, selectionText, rangeInfo) => {
-    if (!selectionText || !color) return
-
-    const payload = {
-      lesson_id: id,
-      text_snippet: selectionText,
-      start_offset: rangeInfo?.start ?? 0,
-      end_offset: rangeInfo?.end ?? selectionText.length,
-      color,
-      note: '',
-    }
-
-    const { data, error } = await supabase
-      .from('highlights')
-      .insert(payload)
-      .select()
-      .single()
-
-    if (error) {
-      console.error('Highlight save error:', error)
-      showToast(error.message || 'Failed to save highlight', 'error')
-    } else if (data) {
-      setHighlights(prev => [...prev, data].sort((a, b) => (a.start_offset || 0) - (b.start_offset || 0)))
-      showToast('Highlight saved!', 'success')
-    }
-    window.getSelection()?.removeAllRanges()
-    setToolbar(null)
-  }
-
-  // Handle color pick from toolbar
+  // Pick highlight color
   const onPickColor = async (color) => {
-    // Use toolbar state; fall back to savedSelectionRef if toolbar was cleared
-    const data = toolbar || savedSelectionRef.current
-    if (!data) return
-    const snippet = data.selectionText
-    if (!snippet) return
+    let saved = toolbar
+    if (!saved || !saved.selectionText) {
+      saved = savedSelectionRef.current
+    }
+    if (!saved || !saved.selectionText) return
 
-    await saveHighlight(color, snippet, {
-      start: data.startOffset ?? data.start ?? 0,
-      end: data.endOffset ?? data.end ?? snippet.length,
-    })
+    const { selectionText, startOffset, endOffset } = saved
+    setToolbar(null)
     savedSelectionRef.current = null
+    window.getSelection()?.removeAllRanges()
+
+    const newHl = {
+      lesson_id: id,
+      color,
+      start_offset: startOffset,
+      end_offset: endOffset,
+      text_snippet: selectionText,
+    }
+
+    const { data, error } = await supabase.from('highlights').insert(newHl).select().single()
+    if (error) {
+      showToast('Failed to save highlight', 'error')
+      return
+    }
+
+    setHighlights(prev => [...prev, data].sort((a, b) => a.start_offset - b.start_offset))
+    showToast('Highlighted!', 'success')
   }
 
-  // Add/update note on highlight
-  const updateHighlightNote = async (highlightId, note) => {
-    await supabase.from('highlights').update({ note }).eq('id', highlightId)
-    setHighlights(prev => prev.map(h => h.id === highlightId ? { ...h, note } : h))
-    setNotePopover(null)
-  }
-
+  // Delete highlight
   const deleteHighlight = async (highlightId) => {
     await supabase.from('highlights').delete().eq('id', highlightId)
     setHighlights(prev => prev.filter(h => h.id !== highlightId))
-    showToast('Highlight removed', 'info')
+    showToast('Highlight deleted')
+  }
+
+  // Update note
+  const updateHighlightNote = async (highlightId, note) => {
+    await supabase.from('highlights').update({ note }).eq('id', highlightId)
+    setHighlights(prev => prev.map(h => h.id === highlightId ? { ...h, note } : h))
+    showToast('Note saved!')
   }
 
   // Change highlight color
@@ -191,13 +219,13 @@ export default function LessonDetail() {
     }
   }
 
-  // Scroll to a highlight
+  // Scroll to a highlight with pulse animation
   const scrollToHighlight = (highlightId) => {
     const el = contentRef.current?.querySelector(`[data-hl="${highlightId}"]`)
     if (el) {
       el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      el.style.outline = '2px solid #6366f1'
-      setTimeout(() => { el.style.outline = '' }, 1500)
+      el.classList.add('highlight-pulse-active')
+      setTimeout(() => { el.classList.remove('highlight-pulse-active') }, 1200)
     }
   }
 
@@ -225,13 +253,13 @@ export default function LessonDetail() {
   const exportMarkdown = () => {
     const md = [`# ${lesson.title}\n`,
       lesson.content,
-      `\n---\n## Highlights\n`,
-      ...highlights.map(h => `- **[${h.color}]** "${h.text_snippet}"${h.note ? `\n  > ${h.note}` : ''}`)
+      `\n---\n## Highlights (${highlights.length})\n`,
+      ...highlights.map((h, i) => `${i + 1}. **[${h.color.toUpperCase()}]** "${h.text_snippet}"${h.note ? `\n   > *Note:* ${h.note}` : ''}`)
     ].join('\n')
     const blob = new Blob([md], { type: 'text/markdown' })
     const a = document.createElement('a')
     a.href = URL.createObjectURL(blob)
-    a.download = `${lesson.title}.md`
+    a.download = `${lesson.title || 'lesson'}.md`
     a.click()
   }
 
@@ -246,12 +274,10 @@ export default function LessonDetail() {
     return () => window.removeEventListener('keydown', handler)
   }, [toolbar])
 
-  // Dismiss toolbar on click outside — use mousedown with a small delay
-  // to avoid killing the toolbar before its own click handlers fire
+  // Dismiss toolbar on click outside
   useEffect(() => {
     const handler = (e) => {
       if (!e.target.closest('.highlight-toolbar') && !e.target.closest('.note-popover')) {
-        // Small delay so color-dot onClick fires first
         setTimeout(() => {
           const sel = window.getSelection()
           if (!sel || sel.isCollapsed || !sel.toString().trim()) {
@@ -279,91 +305,202 @@ export default function LessonDetail() {
   const renderedContent = editing ? null : applyHighlightsToContent(lesson.content || '', highlights)
 
   return (
-    <div className="flex min-h-screen">
+    <div className={`flex min-h-screen ${focusMode ? 'fixed inset-0 z-50 bg-[#f8f8fc] dark:bg-[#0f0f14] overflow-y-auto' : ''}`}>
+      {/* Reading Progress Bar */}
+      {!editing && (
+        <div
+          className="reading-progress-bar"
+          style={{ width: `${scrollProgress}%` }}
+        />
+      )}
+
       {/* Main lesson area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top bar */}
-        <div className="sticky top-0 z-50 bg-white/80 dark:bg-surface-950/80 backdrop-blur border-b border-surface-200 dark:border-surface-800 px-6 py-3 flex items-center gap-3">
-          <button onClick={() => navigate(-1)} className="btn btn-ghost p-1.5">
-            <ArrowLeft size={18} />
-          </button>
-
-          {editing ? (
-            <input
-              dir="auto"
-              className="input-field flex-1 h-9 text-sm font-semibold"
-              value={editTitle}
-              onChange={e => setEditTitle(e.target.value)}
-            />
-          ) : (
-            <h1 dir="auto" className="flex-1 font-bold text-base truncate">{lesson.title}</h1>
-          )}
-
-          {lesson.folders?.name && (
+        <div className="sticky top-0 z-40 bg-white/85 dark:bg-surface-950/85 backdrop-blur-md border-b border-surface-200 dark:border-surface-800 px-4 md:px-8 py-2.5 flex items-center justify-between gap-3 shadow-xs">
+          
+          {/* Left section: back & title */}
+          <div className="flex items-center gap-2.5 min-w-0 flex-1">
             <button
-              onClick={() => navigate(`/folder/${lesson.folders.id}`)}
-              className="tag-chip hidden sm:inline-flex items-center gap-1 hover:opacity-80 transition-opacity"
-              style={{
-                background: (lesson.folders.color || '#6366f1') + '22',
-                color: lesson.folders.color || '#6366f1',
-                borderColor: (lesson.folders.color || '#6366f1') + '44'
+              onClick={() => {
+                if (focusMode) setFocusMode(false)
+                else navigate(-1)
               }}
+              className="btn btn-ghost p-1.5 flex-shrink-0 text-surface-500 hover:text-surface-900 dark:hover:text-surface-100"
+              title="Go back"
             >
-              <Folder size={11} />
-              {lesson.folders.name}
+              <ArrowLeft size={18} />
             </button>
-          )}
 
-          {lesson.subjects?.name && (
-            <span
-              className="tag-chip hidden sm:flex"
-              style={{ background: (lesson.subjects.color || '#6366f1') + '22', color: lesson.subjects.color || '#6366f1', borderColor: (lesson.subjects.color || '#6366f1') + '44' }}
-            >
-              {lesson.subjects.name}
-            </span>
-          )}
+            {editing ? (
+              <input
+                dir="auto"
+                className="input-field flex-1 h-9 text-sm font-semibold"
+                value={editTitle}
+                onChange={e => setEditTitle(e.target.value)}
+              />
+            ) : (
+              <div className="flex items-center gap-2 min-w-0">
+                <h1 dir="auto" className="font-bold text-sm sm:text-base truncate text-surface-900 dark:text-surface-100">
+                  {lesson.title}
+                </h1>
+                {/* Word count & read time */}
+                <span className="hidden xl:inline-flex items-center gap-1 text-[11px] text-surface-400 font-medium whitespace-nowrap bg-surface-100 dark:bg-surface-800 px-2 py-0.5 rounded-full">
+                  <Clock size={11} /> {readingStats.minutes} min read
+                </span>
+              </div>
+            )}
+          </div>
 
-          <button onClick={toggleFavorite} className="btn btn-ghost p-1.5">
-            {lesson.is_favorite
-              ? <Star size={18} className="text-amber-400 fill-amber-400" />
-              : <StarOff size={18} />}
-          </button>
-
-          {editing ? (
-            <>
-              <button onClick={() => setEditing(false)} className="btn btn-secondary h-8 text-sm">Cancel</button>
-              <button onClick={saveEdits} disabled={saving} className="btn btn-primary h-8 text-sm">
-                {saving ? <div className="spinner" style={{ width: 14, height: 14, borderTopColor: '#fff' }} /> : <><Save size={14} /> Save</>}
-              </button>
-            </>
-          ) : (
-            <>
-              <button onClick={() => setEditing(true)} className="btn btn-secondary h-8 text-sm hidden sm:flex">
-                <Edit3 size={14} /> Edit
-              </button>
-              <button onClick={exportMarkdown} className="btn btn-ghost p-1.5" title="Export Markdown">
-                <Download size={18} />
-              </button>
+          {/* Center/Right metadata tags */}
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            {lesson.folders?.name && (
               <button
-                onClick={() => setShowPanel(v => !v)}
-                className="btn btn-ghost p-1.5"
-                title="Toggle highlights panel"
+                onClick={() => navigate(`/folder/${lesson.folders.id}`)}
+                className="tag-chip hidden md:inline-flex items-center gap-1 hover:opacity-80 transition-opacity text-xs"
+                style={{
+                  background: (lesson.folders.color || '#6366f1') + '1a',
+                  color: lesson.folders.color || '#6366f1',
+                  borderColor: (lesson.folders.color || '#6366f1') + '33'
+                }}
               >
-                <Highlighter size={18} />
-                {highlights.length > 0 && (
-                  <span className="ml-1 text-xs bg-brand-500 text-white rounded-full w-4 h-4 flex items-center justify-center">{highlights.length}</span>
-                )}
+                <Folder size={11} />
+                {lesson.folders.name}
               </button>
-            </>
-          )}
+            )}
+
+            {lesson.subjects?.name && (
+              <span
+                className="tag-chip hidden lg:flex text-xs"
+                style={{
+                  background: (lesson.subjects.color || '#6366f1') + '1a',
+                  color: lesson.subjects.color || '#6366f1',
+                  borderColor: (lesson.subjects.color || '#6366f1') + '33'
+                }}
+              >
+                {lesson.subjects.name}
+              </span>
+            )}
+
+            {/* Favorite toggle */}
+            <button onClick={toggleFavorite} className="btn btn-ghost p-1.5" title="Favorite">
+              {lesson.is_favorite
+                ? <Star size={17} className="text-amber-400 fill-amber-400" />
+                : <StarOff size={17} className="text-surface-400" />}
+            </button>
+
+            {editing ? (
+              <>
+                <button onClick={() => setEditing(false)} className="btn btn-secondary h-8 text-xs px-3">Cancel</button>
+                <button onClick={saveEdits} disabled={saving} className="btn btn-primary h-8 text-xs px-3">
+                  {saving ? <div className="spinner" style={{ width: 14, height: 14, borderTopColor: '#fff' }} /> : <><Save size={14} /> Save</>}
+                </button>
+              </>
+            ) : (
+              <>
+                {/* Font Size controls */}
+                <div className="hidden sm:flex items-center bg-surface-100 dark:bg-surface-800 rounded-lg p-0.5 border border-surface-200 dark:border-surface-700">
+                  <button
+                    onClick={() => changeFontSize(-1)}
+                    className="px-2 py-0.5 text-xs font-semibold text-surface-600 dark:text-surface-300 hover:text-brand-500 rounded transition-colors"
+                    title="Smaller text"
+                  >
+                    A-
+                  </button>
+                  <span className="text-[10px] text-surface-400 px-1 font-mono">{fontSize}</span>
+                  <button
+                    onClick={() => changeFontSize(1)}
+                    className="px-2 py-0.5 text-xs font-semibold text-surface-600 dark:text-surface-300 hover:text-brand-500 rounded transition-colors"
+                    title="Larger text"
+                  >
+                    A+
+                  </button>
+                </div>
+
+                {/* Focus / Zen mode toggle */}
+                <button
+                  onClick={() => setFocusMode(v => !v)}
+                  className={`btn btn-ghost p-1.5 text-surface-500 hover:text-brand-500 transition-colors ${focusMode ? 'text-brand-600 dark:text-brand-400 bg-brand-50 dark:bg-brand-950/40' : ''}`}
+                  title={focusMode ? 'Exit Zen Mode (Esc)' : 'Zen / Focus Mode'}
+                >
+                  {focusMode ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
+                </button>
+
+                {/* Edit */}
+                <button onClick={() => setEditing(true)} className="btn btn-secondary h-8 text-xs px-2.5 hidden md:flex items-center gap-1.5">
+                  <Edit3 size={13} /> Edit
+                </button>
+
+                {/* Export Markdown */}
+                <button onClick={exportMarkdown} className="btn btn-ghost p-1.5" title="Export Markdown">
+                  <Download size={17} />
+                </button>
+
+                {/* Review Mode (flashcards) */}
+                {highlights.length > 0 && (
+                  <button
+                    onClick={() => setShowReviewModal(true)}
+                    className="btn btn-ghost p-1.5 text-amber-500 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/30"
+                    title="Review Highlights"
+                  >
+                    <Sparkles size={17} />
+                  </button>
+                )}
+
+                {/* Desktop Highlights Panel toggle */}
+                <button
+                  onClick={() => setShowPanel(v => !v)}
+                  className={`btn btn-ghost p-1.5 hidden lg:flex items-center ${showPanel ? 'text-brand-600 dark:text-brand-400' : 'text-surface-400'}`}
+                  title="Toggle Highlights Sidebar"
+                >
+                  <Highlighter size={17} />
+                  {highlights.length > 0 && (
+                    <span className="ml-1 text-[11px] bg-brand-500 text-white font-bold rounded-full min-w-4 h-4 px-1 flex items-center justify-center">
+                      {highlights.length}
+                    </span>
+                  )}
+                </button>
+
+                {/* Mobile Highlights Drawer toggle */}
+                <button
+                  onClick={() => setMobilePanelOpen(true)}
+                  className="btn btn-ghost p-1.5 lg:hidden flex items-center text-brand-600 dark:text-brand-400"
+                  title="Highlights"
+                >
+                  <Highlighter size={17} />
+                  {highlights.length > 0 && (
+                    <span className="ml-1 text-[11px] bg-brand-500 text-white font-bold rounded-full min-w-4 h-4 px-1 flex items-center justify-center">
+                      {highlights.length}
+                    </span>
+                  )}
+                </button>
+              </>
+            )}
+          </div>
         </div>
 
-        {/* Content */}
-        <div className="flex-1 px-6 md:px-12 py-8 max-w-3xl mx-auto w-full">
+        {/* Focus mode exit pill */}
+        {focusMode && (
+          <div className="sticky top-14 z-30 flex justify-center py-1 pointer-events-none">
+            <div className="pointer-events-auto bg-surface-900/90 dark:bg-surface-100/90 backdrop-blur-md text-white dark:text-surface-900 text-xs px-3.5 py-1 rounded-full shadow-lg flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span>Zen Reading Mode</span>
+              <button
+                onClick={() => setFocusMode(false)}
+                className="opacity-75 hover:opacity-100 ms-1 flex items-center gap-0.5 text-[11px] underline"
+              >
+                Exit (Esc)
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Content area */}
+        <div className={`flex-1 px-5 sm:px-10 md:px-16 py-8 ${focusMode ? 'max-w-4xl' : 'max-w-3xl'} mx-auto w-full transition-all duration-300`}>
           {editing ? (
             <textarea
               dir="auto"
-              className="input-field w-full min-h-[70vh] text-base leading-relaxed resize-none font-sans"
+              className="input-field w-full min-h-[75vh] text-base leading-relaxed resize-none font-sans p-4"
               value={editContent}
               onChange={e => setEditContent(e.target.value)}
               placeholder="Write your lesson content here…"
@@ -371,6 +508,7 @@ export default function LessonDetail() {
           ) : (
             <div
               ref={contentRef}
+              style={{ '--lesson-font-size': fontSize }}
               className="lesson-prose select-text"
               dangerouslySetInnerHTML={{ __html: renderedContent }}
             />
@@ -378,8 +516,8 @@ export default function LessonDetail() {
         </div>
       </div>
 
-      {/* Highlights Panel */}
-      {showPanel && !editing && (
+      {/* Desktop Highlights Panel */}
+      {showPanel && !editing && !focusMode && (
         <div className="hidden lg:block highlights-panel">
           <HighlightsPanel
             highlights={highlights}
@@ -387,8 +525,45 @@ export default function LessonDetail() {
             onDelete={deleteHighlight}
             onUpdateNote={updateHighlightNote}
             onChangeColor={changeHighlightColor}
+            onOpenReview={() => setShowReviewModal(true)}
           />
         </div>
+      )}
+
+      {/* Mobile Highlights Drawer */}
+      {mobilePanelOpen && !editing && (
+        <div className="fixed inset-0 z-50 lg:hidden flex">
+          <div
+            className="fixed inset-0 bg-black/40 backdrop-blur-xs transition-opacity"
+            onClick={() => setMobilePanelOpen(false)}
+          />
+          <div className="relative ml-auto w-84 max-w-[88vw] h-full shadow-2xl z-10 animate-in slide-in-from-right duration-200">
+            <HighlightsPanel
+              highlights={highlights}
+              onScroll={(hlId) => {
+                setMobilePanelOpen(false)
+                scrollToHighlight(hlId)
+              }}
+              onDelete={deleteHighlight}
+              onUpdateNote={updateHighlightNote}
+              onChangeColor={changeHighlightColor}
+              onOpenReview={() => {
+                setMobilePanelOpen(false)
+                setShowReviewModal(true)
+              }}
+              onCloseMobile={() => setMobilePanelOpen(false)}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Flashcard / Study Review Modal */}
+      {showReviewModal && (
+        <HighlightReviewModal
+          highlights={highlights}
+          onClose={() => setShowReviewModal(false)}
+          onJumpToHighlight={scrollToHighlight}
+        />
       )}
 
       {/* Floating toolbar */}

@@ -133,7 +133,7 @@ export function parseMarkdownToHtml(rawText) {
     if (/^>\s+(.+)$/s.test(trimmed)) {
       const content = trimmed.replace(/^>\s+/gm, '')
       htmlBlocks.push(
-        `<blockquote dir="auto" class="border-l-4 border-brand-500 pl-4 py-1 my-3 text-surface-600 dark:text-surface-400 italic bg-surface-50 dark:bg-surface-800/40 rounded-r-lg">${renderInlineMarkdown(escapeHtml(content))}</blockquote>`
+        `<blockquote dir="auto" class="lesson-blockquote">${renderInlineMarkdown(escapeHtml(content))}</blockquote>`
       )
       continue
     }
