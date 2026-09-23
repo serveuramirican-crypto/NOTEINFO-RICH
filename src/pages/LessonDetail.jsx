@@ -48,7 +48,7 @@ export default function LessonDetail() {
   useEffect(() => { fetchData() }, [fetchData])
 
   // Text selection → show toolbar
-  const handleMouseUp = useCallback(() => {
+  const handleSelection = useCallback(() => {
     if (editing) return
     const selection = window.getSelection()
     if (!selection || selection.isCollapsed || !selection.toString().trim()) {
@@ -57,13 +57,16 @@ export default function LessonDetail() {
     // Check selection is inside content area
     const range = selection.getRangeAt(0)
     const container = contentRef.current
-    if (!container || !container.contains(range.commonAncestorContainer)) {
+    if (!container || !container.contains(range.startContainer) || !container.contains(range.endContainer)) {
       return
     }
     const selectionText = selection.toString().trim()
     if (!selectionText) return
 
     const rect = range.getBoundingClientRect()
+    // Fallback if rect is invalid
+    if (rect.width === 0 && rect.height === 0) return
+    
     const { start, end } = getRangeOffsets(range, container)
 
     setToolbar({
@@ -74,6 +77,21 @@ export default function LessonDetail() {
       endOffset: end,
     })
   }, [editing])
+
+  // Listen to mouseup and touchend globally to catch selections that end outside the div
+  useEffect(() => {
+    const handleMouseUpGlobal = () => {
+      setTimeout(handleSelection, 0)
+    }
+    document.addEventListener('mouseup', handleMouseUpGlobal)
+    document.addEventListener('touchend', handleMouseUpGlobal)
+    document.addEventListener('keyup', handleMouseUpGlobal)
+    return () => {
+      document.removeEventListener('mouseup', handleMouseUpGlobal)
+      document.removeEventListener('touchend', handleMouseUpGlobal)
+      document.removeEventListener('keyup', handleMouseUpGlobal)
+    }
+  }, [handleSelection])
 
   // Save highlight to DB
   const saveHighlight = async (color, selectionText, rangeInfo) => {
@@ -313,8 +331,6 @@ export default function LessonDetail() {
             <div
               ref={contentRef}
               className="lesson-prose select-text"
-              onMouseUp={handleMouseUp}
-              onTouchEnd={handleMouseUp}
               dangerouslySetInnerHTML={{ __html: renderedContent }}
             />
           )}
