@@ -178,98 +178,106 @@ export function getRangeOffsets(range, containerEl) {
 
 /**
  * Applies a single highlight onto a DOM container (e.g. root element in DOMParser).
+ * Handles small text, big text spanning multiple lines/paragraphs, blockquotes, and formatting tags.
  */
 function applySingleHighlight(root, hl) {
   if (!hl || !hl.text_snippet) return
-  const snippet = hl.text_snippet
+  const snippet = hl.text_snippet.trim()
+  if (!snippet) return
 
-  // Collect text nodes and their cumulative text offsets
-  const treeWalker = root.ownerDocument.createTreeWalker(
+  const doc = root.ownerDocument
+  const treeWalker = doc.createTreeWalker(
     root,
     NodeFilter.SHOW_TEXT,
     null
   )
 
   const textNodes = []
-  let cumulative = 0
   let node
   while ((node = treeWalker.nextNode())) {
     // Skip if already inside a mark for the same highlight
     if (node.parentElement?.closest(`mark[data-hl="${hl.id}"]`)) continue
-
-    const len = node.textContent.length
-    textNodes.push({
-      node,
-      start: cumulative,
-      end: cumulative + len,
-      length: len,
-      text: node.textContent,
-    })
-    cumulative += len
+    textNodes.push(node)
   }
 
-  const fullDocText = textNodes.map(t => t.text).join('')
-  if (!fullDocText) return
+  if (textNodes.length === 0) return
 
-  // Find the match position — try multiple strategies
-  let matchStart = -1
-
-  // 1. Direct indexOf search (most reliable, especially for RTL/Arabic text)
-  const directIdx = fullDocText.indexOf(snippet)
-  if (directIdx !== -1) {
-    if (typeof hl.start_offset === 'number' && hl.start_offset >= 0) {
-      // Find all occurrences and pick the one closest to the saved offset
-      const indices = []
-      let pos = directIdx
-      while (pos !== -1) {
-        indices.push(pos)
-        pos = fullDocText.indexOf(snippet, pos + 1)
+  // Build character-level mapping of non-whitespace characters across all text nodes
+  const nonWsChars = []
+  textNodes.forEach((tNode, nodeIdx) => {
+    const text = tNode.textContent
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i]
+      if (/\S/.test(ch)) {
+        nonWsChars.push({
+          nodeIdx,
+          offset: i,
+          char: ch,
+        })
       }
-      indices.sort((a, b) => Math.abs(a - hl.start_offset) - Math.abs(b - hl.start_offset))
-      matchStart = indices[0]
-    } else {
-      matchStart = directIdx
+    }
+  })
+
+  if (nonWsChars.length === 0) return
+
+  const docNonWs = nonWsChars.map(c => c.char).join('')
+  const snippetNonWs = snippet.replace(/\s+/g, '')
+  if (!snippetNonWs) return
+
+  // Find all matches of snippetNonWs in docNonWs
+  let matches = []
+  let pos = docNonWs.indexOf(snippetNonWs)
+  while (pos !== -1) {
+    matches.push(pos)
+    pos = docNonWs.indexOf(snippetNonWs, pos + 1)
+  }
+
+  // Fallback 1: Unicode NFC normalization
+  if (matches.length === 0) {
+    const normDoc = docNonWs.normalize('NFC')
+    const normSnippet = snippetNonWs.normalize('NFC')
+    let nPos = normDoc.indexOf(normSnippet)
+    while (nPos !== -1) {
+      matches.push(nPos)
+      nPos = normDoc.indexOf(normSnippet, nPos + 1)
     }
   }
 
-  // 2. Check exact start_offset position as backup
-  if (matchStart === -1 && typeof hl.start_offset === 'number' && hl.start_offset >= 0) {
-    if (fullDocText.substring(hl.start_offset, hl.start_offset + snippet.length) === snippet) {
-      matchStart = hl.start_offset
+  // Fallback 2: Normalize quotes, Arabic diacritics, and special punctuation
+  if (matches.length === 0) {
+    const cleanStr = (s) => s.replace(/[\u201C\u201D\u00AB\u00BB]/g, '"')
+                             .replace(/[\u2018\u2019]/g, "'")
+                             .replace(/[\u064B-\u065F\u0670]/g, '') // remove Arabic tashkeel
+    const cleanDoc = cleanStr(docNonWs)
+    const cleanSnippet = cleanStr(snippetNonWs)
+    let cPos = cleanDoc.indexOf(cleanSnippet)
+    while (cPos !== -1) {
+      matches.push(cPos)
+      cPos = cleanDoc.indexOf(cleanSnippet, cPos + 1)
     }
   }
 
-  // 3. Fallback: normalized search (ignoring extra whitespace/newlines)
-  if (matchStart === -1) {
-    const cleanSnippet = snippet.trim().replace(/\s+/g, ' ')
-    const cleanDoc = fullDocText.replace(/\s+/g, ' ')
-    const cleanPos = cleanDoc.indexOf(cleanSnippet)
-    if (cleanPos !== -1) {
-      matchStart = cleanPos
-    }
+  if (matches.length === 0) return
+
+  // If multiple occurrences, pick the one closest to hl.start_offset
+  let matchStartNonWs = matches[0]
+  if (matches.length > 1 && typeof hl.start_offset === 'number' && hl.start_offset >= 0) {
+    matches.sort((a, b) => {
+      const offA = nonWsChars[a].offset
+      const offB = nonWsChars[b].offset
+      return Math.abs(offA - hl.start_offset) - Math.abs(offB - hl.start_offset)
+    })
+    matchStartNonWs = matches[0]
   }
 
-  if (matchStart === -1) return
+  const startEntry = nonWsChars[matchStartNonWs]
+  const endEntry = nonWsChars[matchStartNonWs + snippetNonWs.length - 1]
+  if (!startEntry || !endEntry) return
 
-  const matchEnd = matchStart + snippet.length
+  const startNodeIdx = startEntry.nodeIdx
+  const endNodeIdx = endEntry.nodeIdx
 
-  // Find overlapping text nodes and wrap matched portions
-  const nodesToProcess = textNodes.filter(t => t.end > matchStart && t.start < matchEnd)
-
-  for (const entry of nodesToProcess) {
-    const { node: currNode, start: nodeStart, length: nodeLen, text: nodeText } = entry
-    if (!currNode.parentNode) continue
-
-    const sliceStart = Math.max(0, matchStart - nodeStart)
-    const sliceEnd = Math.min(nodeLen, matchEnd - nodeStart)
-
-    if (sliceStart >= sliceEnd) continue
-
-    const beforeText = nodeText.substring(0, sliceStart)
-    const matchedText = nodeText.substring(sliceStart, sliceEnd)
-    const afterText = nodeText.substring(sliceEnd)
-
-    const doc = root.ownerDocument
+  const createMark = (text) => {
     const mark = doc.createElement('mark')
     mark.className = `hl-${hl.color || 'yellow'}`
     mark.setAttribute('data-hl', hl.id || '')
@@ -277,17 +285,67 @@ function applySingleHighlight(root, hl) {
     if (hl.note) {
       mark.setAttribute('title', hl.note)
     }
-    mark.textContent = matchedText
+    mark.textContent = text
+    return mark
+  }
 
-    const parent = currNode.parentNode
-    if (beforeText) {
-      parent.insertBefore(doc.createTextNode(beforeText), currNode)
+  if (startNodeIdx === endNodeIdx) {
+    // Single text node (e.g. small text)
+    const targetNode = textNodes[startNodeIdx]
+    if (!targetNode || !targetNode.parentNode) return
+
+    const fullText = targetNode.textContent
+    const startOff = startEntry.offset
+    const endOff = endEntry.offset + 1
+
+    const before = fullText.substring(0, startOff)
+    const matched = fullText.substring(startOff, endOff)
+    const after = fullText.substring(endOff)
+
+    const parent = targetNode.parentNode
+    if (before) parent.insertBefore(doc.createTextNode(before), targetNode)
+    parent.insertBefore(createMark(matched), targetNode)
+    if (after) parent.insertBefore(doc.createTextNode(after), targetNode)
+    parent.removeChild(targetNode)
+  } else {
+    // Spans multiple text nodes (e.g. big text across lines, paragraphs, blockquotes)
+    // 1. First node
+    const firstNode = textNodes[startNodeIdx]
+    if (firstNode && firstNode.parentNode) {
+      const firstFull = firstNode.textContent
+      const firstStartOff = startEntry.offset
+      const firstBefore = firstFull.substring(0, firstStartOff)
+      const firstMatched = firstFull.substring(firstStartOff)
+
+      const firstParent = firstNode.parentNode
+      if (firstBefore) firstParent.insertBefore(doc.createTextNode(firstBefore), firstNode)
+      firstParent.insertBefore(createMark(firstMatched), firstNode)
+      firstParent.removeChild(firstNode)
     }
-    parent.insertBefore(mark, currNode)
-    if (afterText) {
-      parent.insertBefore(doc.createTextNode(afterText), currNode)
+
+    // 2. Middle nodes (entire node text is highlighted)
+    for (let i = startNodeIdx + 1; i < endNodeIdx; i++) {
+      const midNode = textNodes[i]
+      if (midNode && midNode.parentNode) {
+        const midParent = midNode.parentNode
+        midParent.insertBefore(createMark(midNode.textContent), midNode)
+        midParent.removeChild(midNode)
+      }
     }
-    parent.removeChild(currNode)
+
+    // 3. Last node
+    const lastNode = textNodes[endNodeIdx]
+    if (lastNode && lastNode.parentNode) {
+      const lastFull = lastNode.textContent
+      const lastEndOff = endEntry.offset + 1
+      const lastMatched = lastFull.substring(0, lastEndOff)
+      const lastAfter = lastFull.substring(lastEndOff)
+
+      const lastParent = lastNode.parentNode
+      lastParent.insertBefore(createMark(lastMatched), lastNode)
+      if (lastAfter) lastParent.insertBefore(doc.createTextNode(lastAfter), lastNode)
+      lastParent.removeChild(lastNode)
+    }
   }
 }
 

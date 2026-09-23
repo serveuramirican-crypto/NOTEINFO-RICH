@@ -9,7 +9,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
 import HighlightToolbar from '../components/HighlightToolbar'
 import HighlightsPanel from '../components/HighlightsPanel'
-import { applyHighlightsToContent, parseMarkdownToHtml } from '../lib/highlightUtils'
+import { applyHighlightsToContent, parseMarkdownToHtml, getRangeOffsets } from '../lib/highlightUtils'
 
 export default function LessonDetail() {
   const { id } = useParams()
@@ -75,21 +75,19 @@ export default function LessonDetail() {
     // Fallback if rect is invalid
     if (rect.width === 0 && rect.height === 0) return
 
-    // Compute offset: parse raw lesson content to plain text (same as applySingleHighlight)
-    // so the saved start_offset matches the DOMParser text node offsets
-    let start = -1
+    // Compute offset accurately from the selection range inside the container
+    let start = 0
+    let end = selectionText.length
     try {
-      const rawHtml = parseMarkdownToHtml(lessonContentRef.current)
-      const tmpDoc = new DOMParser().parseFromString(`<div>${rawHtml}</div>`, 'text/html')
-      const plainText = tmpDoc.body.firstChild?.textContent || ''
-      start = plainText.indexOf(selectionText)
+      const offsets = getRangeOffsets(range, container)
+      if (offsets && typeof offsets.start === 'number') {
+        start = offsets.start
+        end = offsets.end
+      }
     } catch {
-      // fallback: use rendered container textContent
-      const containerText = contentRef.current?.textContent || ''
-      start = containerText.indexOf(selectionText)
+      start = 0
+      end = selectionText.length
     }
-    const end = start >= 0 ? start + selectionText.length : selectionText.length
-    if (start < 0) start = 0
 
     // Save selection so toolbar button clicks can still find it
     savedSelectionRef.current = { selectionText, start, end }
