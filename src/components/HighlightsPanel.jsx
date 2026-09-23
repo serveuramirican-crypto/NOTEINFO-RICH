@@ -229,7 +229,7 @@ export default function HighlightsPanel({
           {visibleHighlights.map(hl => {
             const colorInfo = COLOR_MAP[hl.color] || { hex: '#6366f1', label: hl.color, bg: '#e0e7ff' }
             const isExpanded = expanded[hl.id]
-            const isLong = hl.text_snippet && hl.text_snippet.length > 110
+            const isLong = hl.text_snippet && hl.text_snippet.length > 150
             const isChanging = changingColor === hl.id
 
             return (
@@ -301,29 +301,31 @@ export default function HighlightsPanel({
                 </div>
 
                 {/* Snippet */}
-                <p
+                <div
                   dir="auto"
-                  className="text-xs leading-relaxed text-surface-700 dark:text-surface-300 font-normal select-text"
+                  className="text-xs leading-relaxed text-surface-800 dark:text-surface-200 font-medium select-text text-start break-words"
                   style={{
                     display: '-webkit-box',
                     WebkitBoxOrient: 'vertical',
-                    WebkitLineClamp: isExpanded ? 'unset' : 3,
+                    WebkitLineClamp: isExpanded ? 'unset' : 6,
                     overflow: 'hidden',
                     unicodeBidi: 'plaintext',
+                    wordBreak: 'break-word',
+                    lineHeight: '1.65',
                   }}
                 >
-                  “{hl.text_snippet}”
-                </p>
+                  {hl.text_snippet}
+                </div>
 
                 {/* Expand/Collapse toggle */}
                 {isLong && (
                   <button
                     onClick={e => { e.stopPropagation(); toggleExpand(hl.id) }}
-                    className="mt-1 flex items-center gap-0.5 text-[11px] text-brand-500 hover:text-brand-600 font-medium transition-colors"
+                    className="mt-1.5 flex items-center gap-1 text-[11px] text-brand-600 dark:text-brand-400 hover:text-brand-700 font-medium transition-colors"
                   >
                     {isExpanded
-                      ? <><ChevronUp size={11} /> Show less</>
-                      : <><ChevronDown size={11} /> Show more</>
+                      ? <><ChevronUp size={12} /> Show less</>
+                      : <><ChevronDown size={12} /> Show full text</>
                     }
                   </button>
                 )}

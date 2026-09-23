@@ -35,10 +35,10 @@ export default function AppLayout() {
   )
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen w-full overflow-x-hidden">
       <Sidebar mobileOpen={mobileOpen} setMobileOpen={setMobileOpen} />
 
-      <div className="main-content flex-1">
+      <div className="main-content flex-1 min-w-0 max-w-full">
         {/* Mobile topbar */}
         <div className="md:hidden flex items-center gap-3 px-4 py-3 border-b border-surface-200 dark:border-surface-800 bg-white dark:bg-surface-950">
           <button onClick={() => setMobileOpen(true)} className="btn btn-ghost p-1.5">

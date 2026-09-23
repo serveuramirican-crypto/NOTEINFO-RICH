@@ -451,25 +451,17 @@ export default function LessonDetail() {
                   </button>
                 )}
 
-                {/* Desktop Highlights Panel toggle */}
+                {/* Highlights Panel toggle (desktop sidebar + mobile drawer) */}
                 <button
-                  onClick={() => setShowPanel(v => !v)}
-                  className={`btn btn-ghost p-1.5 hidden lg:flex items-center ${showPanel ? 'text-brand-600 dark:text-brand-400' : 'text-surface-400'}`}
-                  title="Toggle Highlights Sidebar"
-                >
-                  <Highlighter size={17} />
-                  {highlights.length > 0 && (
-                    <span className="ml-1 text-[11px] bg-brand-500 text-white font-bold rounded-full min-w-4 h-4 px-1 flex items-center justify-center">
-                      {highlights.length}
-                    </span>
-                  )}
-                </button>
-
-                {/* Mobile Highlights Drawer toggle */}
-                <button
-                  onClick={() => setMobilePanelOpen(true)}
-                  className="btn btn-ghost p-1.5 lg:hidden flex items-center text-brand-600 dark:text-brand-400"
-                  title="Highlights"
+                  onClick={() => {
+                    if (window.innerWidth >= 1024) {
+                      setShowPanel(v => !v)
+                    } else {
+                      setMobilePanelOpen(v => !v)
+                    }
+                  }}
+                  className={`btn btn-ghost p-1.5 flex items-center ${showPanel ? 'text-brand-600 dark:text-brand-400' : 'text-surface-400'}`}
+                  title="Toggle Highlights Panel"
                 >
                   <Highlighter size={17} />
                   {highlights.length > 0 && (
@@ -500,7 +492,7 @@ export default function LessonDetail() {
         )}
 
         {/* Content area */}
-        <div className={`flex-1 px-5 sm:px-10 md:px-16 py-8 ${focusMode ? 'max-w-4xl' : 'max-w-3xl'} mx-auto w-full transition-all duration-300`}>
+        <div className={`flex-1 px-4 sm:px-8 md:px-10 py-8 ${focusMode ? 'max-w-4xl' : 'max-w-3xl'} mx-auto w-full transition-all duration-300`}>
           {editing ? (
             <textarea
               dir="auto"
