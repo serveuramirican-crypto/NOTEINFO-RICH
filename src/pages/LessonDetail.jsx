@@ -9,7 +9,7 @@ import { useAuth } from '../contexts/AuthContext'
 import { useToast } from '../contexts/ToastContext'
 import HighlightToolbar from '../components/HighlightToolbar'
 import HighlightsPanel from '../components/HighlightsPanel'
-import { applyHighlightsToContent, getRangeOffsets } from '../lib/highlightUtils'
+import { applyHighlightsToContent, parseMarkdownToHtml } from '../lib/highlightUtils'
 
 export default function LessonDetail() {
   const { id } = useParams()
@@ -31,6 +31,7 @@ export default function LessonDetail() {
   const [notePopover, setNotePopover] = useState(null) // { x, y, highlightId }
 
   const contentRef = useRef(null)
+  const lessonContentRef = useRef('') // always holds latest lesson.content for offset calc
 
   // Fetch lesson and highlights
   const fetchData = useCallback(async () => {
@@ -42,14 +43,21 @@ export default function LessonDetail() {
     setHighlights(h || [])
     setEditContent(l?.content || '')
     setEditTitle(l?.title || '')
+    lessonContentRef.current = l?.content || ''
     setLoading(false)
   }, [id])
 
   useEffect(() => { fetchData() }, [fetchData])
 
+  // Saved selection ref so we can restore it after toolbar appears
+  const savedSelectionRef = useRef(null)
+
   // Text selection → show toolbar
-  const handleSelection = useCallback(() => {
+  const handleSelection = useCallback((e) => {
     if (editing) return
+    // Don't show toolbar if user clicked on highlight toolbar itself
+    if (e?.target?.closest('.highlight-toolbar')) return
+
     const selection = window.getSelection()
     if (!selection || selection.isCollapsed || !selection.toString().trim()) {
       return
@@ -66,8 +74,25 @@ export default function LessonDetail() {
     const rect = range.getBoundingClientRect()
     // Fallback if rect is invalid
     if (rect.width === 0 && rect.height === 0) return
-    
-    const { start, end } = getRangeOffsets(range, container)
+
+    // Compute offset: parse raw lesson content to plain text (same as applySingleHighlight)
+    // so the saved start_offset matches the DOMParser text node offsets
+    let start = -1
+    try {
+      const rawHtml = parseMarkdownToHtml(lessonContentRef.current)
+      const tmpDoc = new DOMParser().parseFromString(`<div>${rawHtml}</div>`, 'text/html')
+      const plainText = tmpDoc.body.firstChild?.textContent || ''
+      start = plainText.indexOf(selectionText)
+    } catch {
+      // fallback: use rendered container textContent
+      const containerText = contentRef.current?.textContent || ''
+      start = containerText.indexOf(selectionText)
+    }
+    const end = start >= 0 ? start + selectionText.length : selectionText.length
+    if (start < 0) start = 0
+
+    // Save selection so toolbar button clicks can still find it
+    savedSelectionRef.current = { selectionText, start, end }
 
     setToolbar({
       x: Math.max(100, Math.min(window.innerWidth - 100, rect.left + rect.width / 2)),
@@ -78,18 +103,26 @@ export default function LessonDetail() {
     })
   }, [editing])
 
-  // Listen to mouseup and touchend globally to catch selections that end outside the div
+  // Listen to mouseup and touchend globally
   useEffect(() => {
-    const handleMouseUpGlobal = () => {
-      setTimeout(handleSelection, 0)
+    const handleMouseUpGlobal = (e) => {
+      // Don't process if click was inside the toolbar (let toolbar handle it)
+      if (e?.target?.closest('.highlight-toolbar')) return
+      setTimeout(() => handleSelection(e), 10)
+    }
+    const handleTouchEndGlobal = (e) => {
+      setTimeout(() => handleSelection(e), 10)
+    }
+    const handleKeyUpGlobal = (e) => {
+      handleSelection(e)
     }
     document.addEventListener('mouseup', handleMouseUpGlobal)
-    document.addEventListener('touchend', handleMouseUpGlobal)
-    document.addEventListener('keyup', handleMouseUpGlobal)
+    document.addEventListener('touchend', handleTouchEndGlobal)
+    document.addEventListener('keyup', handleKeyUpGlobal)
     return () => {
       document.removeEventListener('mouseup', handleMouseUpGlobal)
-      document.removeEventListener('touchend', handleMouseUpGlobal)
-      document.removeEventListener('keyup', handleMouseUpGlobal)
+      document.removeEventListener('touchend', handleTouchEndGlobal)
+      document.removeEventListener('keyup', handleKeyUpGlobal)
     }
   }, [handleSelection])
 
@@ -125,14 +158,17 @@ export default function LessonDetail() {
 
   // Handle color pick from toolbar
   const onPickColor = async (color) => {
-    if (!toolbar) return
-    const snippet = toolbar.selectionText
+    // Use toolbar state; fall back to savedSelectionRef if toolbar was cleared
+    const data = toolbar || savedSelectionRef.current
+    if (!data) return
+    const snippet = data.selectionText
     if (!snippet) return
 
     await saveHighlight(color, snippet, {
-      start: toolbar.startOffset ?? 0,
-      end: toolbar.endOffset ?? snippet.length,
+      start: data.startOffset ?? data.start ?? 0,
+      end: data.endOffset ?? data.end ?? snippet.length,
     })
+    savedSelectionRef.current = null
   }
 
   // Add/update note on highlight
@@ -212,11 +248,18 @@ export default function LessonDetail() {
     return () => window.removeEventListener('keydown', handler)
   }, [toolbar])
 
-  // Dismiss toolbar on click outside
+  // Dismiss toolbar on click outside — use mousedown with a small delay
+  // to avoid killing the toolbar before its own click handlers fire
   useEffect(() => {
     const handler = (e) => {
       if (!e.target.closest('.highlight-toolbar') && !e.target.closest('.note-popover')) {
-        setToolbar(null)
+        // Small delay so color-dot onClick fires first
+        setTimeout(() => {
+          const sel = window.getSelection()
+          if (!sel || sel.isCollapsed || !sel.toString().trim()) {
+            setToolbar(null)
+          }
+        }, 150)
       }
     }
     window.addEventListener('mousedown', handler)

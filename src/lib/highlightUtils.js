@@ -211,37 +211,35 @@ function applySingleHighlight(root, hl) {
   const fullDocText = textNodes.map(t => t.text).join('')
   if (!fullDocText) return
 
-  // Find the match position in fullDocText
+  // Find the match position — try multiple strategies
   let matchStart = -1
 
-  // 1. Check if snippet matches at hl.start_offset
-  if (typeof hl.start_offset === 'number' && hl.start_offset >= 0) {
+  // 1. Direct indexOf search (most reliable, especially for RTL/Arabic text)
+  const directIdx = fullDocText.indexOf(snippet)
+  if (directIdx !== -1) {
+    if (typeof hl.start_offset === 'number' && hl.start_offset >= 0) {
+      // Find all occurrences and pick the one closest to the saved offset
+      const indices = []
+      let pos = directIdx
+      while (pos !== -1) {
+        indices.push(pos)
+        pos = fullDocText.indexOf(snippet, pos + 1)
+      }
+      indices.sort((a, b) => Math.abs(a - hl.start_offset) - Math.abs(b - hl.start_offset))
+      matchStart = indices[0]
+    } else {
+      matchStart = directIdx
+    }
+  }
+
+  // 2. Check exact start_offset position as backup
+  if (matchStart === -1 && typeof hl.start_offset === 'number' && hl.start_offset >= 0) {
     if (fullDocText.substring(hl.start_offset, hl.start_offset + snippet.length) === snippet) {
       matchStart = hl.start_offset
     }
   }
 
-  // 2. If not matched at exact start_offset, find all occurrences of snippet in fullDocText
-  if (matchStart === -1) {
-    const indices = []
-    let pos = fullDocText.indexOf(snippet)
-    while (pos !== -1) {
-      indices.push(pos)
-      pos = fullDocText.indexOf(snippet, pos + 1)
-    }
-
-    if (indices.length > 0) {
-      if (typeof hl.start_offset === 'number' && hl.start_offset >= 0) {
-        // Pick the occurrence closest to hl.start_offset
-        indices.sort((a, b) => Math.abs(a - hl.start_offset) - Math.abs(b - hl.start_offset))
-        matchStart = indices[0]
-      } else {
-        matchStart = indices[0]
-      }
-    }
-  }
-
-  // 3. Fallback: normalized search (ignoring excessive whitespace/newlines)
+  // 3. Fallback: normalized search (ignoring extra whitespace/newlines)
   if (matchStart === -1) {
     const cleanSnippet = snippet.trim().replace(/\s+/g, ' ')
     const cleanDoc = fullDocText.replace(/\s+/g, ' ')
