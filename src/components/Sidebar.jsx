@@ -161,8 +161,13 @@ export default function Sidebar({ mobileOpen, setMobileOpen }) {
             Sign Out
           </button>
           {user && (
-            <div className="px-3 py-2 mt-2 rounded-lg bg-surface-50 dark:bg-surface-900">
-              <p className="text-xs text-surface-400 truncate">{user.email}</p>
+            <div className="flex items-center gap-2.5 px-3 py-2 mt-2 rounded-xl bg-surface-100/80 dark:bg-surface-900 border border-surface-200/60 dark:border-surface-800">
+              <div className="w-7 h-7 rounded-lg bg-brand-500 text-white flex items-center justify-center font-bold text-xs flex-shrink-0">
+                {user.email?.charAt(0).toUpperCase() || 'U'}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium text-surface-800 dark:text-surface-200 truncate">{user.email}</p>
+              </div>
             </div>
           )}
         </div>

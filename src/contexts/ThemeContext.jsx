@@ -9,6 +9,7 @@ export function ThemeProvider({ children }) {
   })
 
   useEffect(() => {
+    document.documentElement.classList.toggle('dark', dark)
     document.body.classList.toggle('dark', dark)
     localStorage.setItem('maktaba-theme', dark ? 'dark' : 'light')
   }, [dark])
